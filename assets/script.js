@@ -19,14 +19,21 @@
                                    //   if not, see deriveCategory() below.
      "condition": string          // "good" | "fair" (display label only)
      "sn":        string          // stock number shown to customers
-     "image":     string          // URL to a real photo
-     "url":       string          // (optional) link to a detail page, if any
+     "image":     string          // URL to the primary/cover photo
+     "images":    string[]        // (optional) additional photos for the detail page gallery
+     "description": string        // (optional) longer write-up shown on the detail page
+     "specs":     object          // (optional) key/value pairs shown on the detail page, e.g. { "Engine": "4.4L Diesel", "Drive": "MFWD" }
    }
+
+   Detail page: each card links to /unit.html?id=<id>, which fetches
+   the same feed and finds the matching item client-side. There is no
+   separate per-unit JSON request — the whole feed is small enough to
+   reuse.
 
    When the real schema is confirmed, the only things that should
    need to change are: INVENTORY_FEED_URL, the field names referenced
-   in renderInventory()/buildCard(), and deriveCategory() if category
-   isn't provided directly.
+   in renderInventory()/buildCard()/normalizeItem(), and deriveCategory()
+   if category isn't provided directly.
    ============================================================ */
 
 const INVENTORY_FEED_URL = '/data/inventory.json'; // TODO: point at the real feed URL once live
@@ -50,6 +57,8 @@ function deriveCategory(item) {
 }
 
 function normalizeItem(raw) {
+  const cover = raw.image || raw.imageUrl || '';
+  const extra = Array.isArray(raw.images) ? raw.images : [];
   return {
     id: raw.id,
     make: raw.make || '',
@@ -60,8 +69,12 @@ function normalizeItem(raw) {
     category: raw.category || deriveCategory(raw),
     condition: raw.condition || 'good',
     sn: raw.sn || raw.stockNumber || '',
-    image: raw.image || raw.imageUrl || '',
-    url: raw.url || '#'
+    image: cover,
+    // de-duplicated gallery list, cover photo first
+    images: [cover, ...extra].filter((v, i, arr) => v && arr.indexOf(v) === i),
+    description: raw.description || '',
+    specs: (raw.specs && typeof raw.specs === 'object') ? raw.specs : {},
+    url: `/unit.html?id=${encodeURIComponent(raw.id)}`
   };
 }
 
@@ -236,10 +249,121 @@ document.addEventListener('keydown', e => {
 });
 
 /* ============================================================
+   UNIT DETAIL PAGE (unit.html?id=...)
+   Reuses the same feed — fetches it once, finds the matching item.
+   No separate per-unit endpoint needed.
+   ============================================================ */
+
+let galleryImages = [];
+let galleryIndex = 0;
+
+function setGalleryImage(i) {
+  const main = document.getElementById('ud-main-img');
+  if (!main || !galleryImages.length) return;
+  galleryIndex = ((i % galleryImages.length) + galleryImages.length) % galleryImages.length;
+  main.src = galleryImages[galleryIndex];
+  document.querySelectorAll('.ud-thumb').forEach((t, idx) => {
+    t.classList.toggle('active', idx === galleryIndex);
+  });
+}
+
+function nextGalleryImage() { setGalleryImage(galleryIndex + 1); }
+function prevGalleryImage() { setGalleryImage(galleryIndex - 1); }
+
+async function loadUnitDetail() {
+  const root = document.getElementById('unit-detail');
+  if (!root) return; // not on the detail page
+
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get('id');
+
+  if (!id) {
+    root.innerHTML = '<div class="inv-error">No unit specified. <a href="/index.html#inventory">Back to inventory</a>.</div>';
+    return;
+  }
+
+  try {
+    const res = await fetch(INVENTORY_FEED_URL, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`Feed responded ${res.status}`);
+    const raw = await res.json();
+    const items = Array.isArray(raw) ? raw.map(normalizeItem) : [];
+    const item = items.find(i => String(i.id) === String(id));
+
+    if (!item) {
+      root.innerHTML = '<div class="inv-error">This unit is no longer available, or the link is incorrect. <a href="/index.html#inventory">View current inventory</a>.</div>';
+      return;
+    }
+
+    renderUnitDetail(item);
+  } catch (err) {
+    console.error('Unit detail failed to load:', err);
+    root.innerHTML = '<div class="inv-error">We couldn\'t load this listing right now. Please call us or try again shortly.</div>';
+  }
+}
+
+function renderUnitDetail(item) {
+  const root = document.getElementById('unit-detail');
+  document.title = `${item.make} ${item.model} (${item.year}) | VanderWal Equipment`;
+
+  galleryImages = item.images.length ? item.images : ['/assets/img/placeholder-unit.svg'];
+  galleryIndex = 0;
+
+  const badgeClass = item.condition === 'good' ? 'bgood' : 'bfair';
+  const badgeLabel = item.condition === 'good' ? 'Good' : 'Fair';
+  const hoursLabel = item.hours === 0 ? 'Demo' : `${item.hours.toLocaleString()} hrs`;
+  const priceLabel = item.price ? `$${item.price.toLocaleString('en-CA')}` : 'Call for price';
+
+  const thumbsHtml = galleryImages.map((src, i) => `
+    <button class="ud-thumb${i === 0 ? ' active' : ''}" onclick="setGalleryImage(${i})" aria-label="View photo ${i + 1}">
+      <img src="${src}" alt="${item.make} ${item.model} photo ${i + 1}" loading="lazy" onerror="this.closest('.ud-thumb').style.display='none'">
+    </button>
+  `).join('');
+
+  const specsEntries = Object.entries(item.specs || {});
+  const specsHtml = specsEntries.length
+    ? `<div class="ud-specs">${specsEntries.map(([k, v]) => `
+        <div class="ud-spec-row"><span class="ud-spec-key">${k}</span><span class="ud-spec-val">${v}</span></div>
+      `).join('')}</div>`
+    : '';
+
+  root.innerHTML = `
+    <a class="ud-back" href="/index.html#inventory">← Back to Inventory</a>
+    <div class="ud-layout">
+      <div class="ud-gallery">
+        <div class="ud-main">
+          <span class="ubadge ${badgeClass}">${badgeLabel}</span>
+          ${galleryImages.length > 1 ? '<button class="ud-nav ud-prev" onclick="prevGalleryImage()" aria-label="Previous photo">‹</button>' : ''}
+          <img id="ud-main-img" src="${galleryImages[0]}" alt="${item.make} ${item.model}" onerror="this.src='/assets/img/placeholder-unit.svg'">
+          ${galleryImages.length > 1 ? '<button class="ud-nav ud-next" onclick="nextGalleryImage()" aria-label="Next photo">›</button>' : ''}
+        </div>
+        ${galleryImages.length > 1 ? `<div class="ud-thumbs">${thumbsHtml}</div>` : ''}
+      </div>
+      <div class="ud-info">
+        <div class="umake">${item.make}</div>
+        <h1 class="ud-model">${item.model}</h1>
+        <div class="umeta ud-meta">
+          <span><strong>${item.year}</strong></span>
+          <span><strong>${hoursLabel}</strong></span>
+          <span>Stk <strong>${item.sn}</strong></span>
+        </div>
+        <div class="ud-price">${priceLabel}${item.price ? ' <span class="upriceSub">CAD + tax</span>' : ''}</div>
+        ${item.description ? `<p class="ud-desc">${item.description}</p>` : ''}
+        ${specsHtml}
+        <div class="ud-cta">
+          <a class="ud-call" href="tel:+16044633681">Call About This Unit</a>
+          <a class="ud-email" href="mailto:sales@vanderwaleq.com?subject=${encodeURIComponent(item.make + ' ' + item.model + ' — Stock ' + item.sn)}">Email Us</a>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/* ============================================================
    INIT
    ============================================================ */
 document.addEventListener('DOMContentLoaded', () => {
   loadInventory();
+  loadUnitDetail();
 
   const searchInput = document.getElementById('si');
   if (searchInput) {
