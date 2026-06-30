@@ -111,6 +111,28 @@ function runSearch() {
   renderInventory();
 }
 
+/**
+ * Used by "Used Inventory" links on brand cards. Fills the search box
+ * with the brand name, resets the category filter to All (since brand
+ * isn't a category), re-renders, and scrolls the inventory section
+ * into view.
+ */
+function searchInventoryFor(brand) {
+  const input = document.getElementById('si');
+  if (input) input.value = brand;
+  searchTerm = brand.toLowerCase().trim();
+
+  document.querySelectorAll('.fc').forEach(btn => btn.classList.remove('on'));
+  const allBtn = document.querySelector('.fc');
+  if (allBtn) allBtn.classList.add('on');
+  activeFilter = 'all';
+
+  renderInventory();
+
+  const section = document.getElementById('inventory');
+  if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function buildCard(item) {
   const badgeClass = item.condition === 'good' ? 'bgood' : 'bfair';
   const badgeLabel = item.condition === 'good' ? 'Good' : 'Fair';
