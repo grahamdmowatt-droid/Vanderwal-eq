@@ -1,0 +1,41 @@
+[
+  {
+    "id": 1,
+    "make": "Massey Ferguson",
+    "model": "MF 6713S",
+    "year": 2019,
+    "hours": 3240,
+    "price": 89500,
+    "category": "tractor",
+    "condition": "good",
+    "sn": "VW-1042",
+    "image": "/assets/img/equipment-mf5s.jpg",
+    "url": "#"
+  },
+  {
+    "id": 4,
+    "make": "LEMKEN",
+    "model": "Zirkon 10/400K",
+    "year": 2020,
+    "hours": 0,
+    "price": 18400,
+    "category": "tillage",
+    "condition": "good",
+    "sn": "VW-1061",
+    "image": "/assets/img/equipment-lemken.jpg",
+    "url": "#"
+  },
+  {
+    "id": 5,
+    "make": "Weidemann",
+    "model": "1380 Hoftrac",
+    "year": 2022,
+    "hours": 890,
+    "price": 41000,
+    "category": "loader",
+    "condition": "good",
+    "sn": "VW-1068",
+    "image": "/assets/img/equipment-weidemann.jpg",
+    "url": "#"
+  }
+]
